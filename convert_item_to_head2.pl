@@ -254,9 +254,12 @@ use Log::Log4perl::Level;
     $log->info(qq(My PID is $$));
 
     ### MAIN SCRIPT
-    my @files = File::Find::Rule->file()
+    my @modules = File::Find::Rule->file()
                                 ->name(q(*.pm))
                                 ->in($cfg->get(q(path)));
+
+    print join(qq(\n), @modules);
+    print qq(\n);
 
 =head1 AUTHOR
 

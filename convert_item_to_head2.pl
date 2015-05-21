@@ -198,6 +198,7 @@ use Carp;
 
 ### External modules
 use strictures 2;
+use Digest::MD5 qw(md5 md5_base64);
 use File::Find::Rule;
 use Log::Log4perl qw(get_logger :no_extra_logdie_message);
 use Log::Log4perl::Level;
@@ -258,7 +259,7 @@ use Log::Log4perl::Level;
     # replace the tilde if it exists at the beginning of the path
     if ( $mod_path =~ m!/$!) {
         $mod_path =~ s!/$!!;
-        say qq(mod_path is now $mod_path);
+        #say qq(mod_path is now $mod_path);
     }
     my @modules = File::Find::Rule->file()
                                 ->name(q(*.pm))
@@ -270,25 +271,68 @@ use Log::Log4perl::Level;
         $mod_name =~ s!/!::!g;
         say qq(==== Checking module $mod_name ====);
         open(my $fh, q(<), $mod_file);
-        my ($over_count, $line_count);
-        foreach my $line ( <$fh> ) {
+        my @file_contents = <$fh>;
+        close($fh);
+        my $old_file = join(qq(\n), @file_contents);
+        my $over_count = 0;
+        my $line_count = 0;
+        my $functions_methods_flag = 0;
+        my $new_file = q();
+        foreach my $line ( @file_contents ) {
             $line_count++;
             my $pre = sprintf(q(%4d), $line_count);
             chomp($line);
             if ( $line =~ /^=head[1234]/ ) {
-                say qq($pre header: $line);
-            }
-            if ( $line =~ /^=over/ ) {
-                say qq($pre   over: $line);
+                say qq($pre    header: $line);
+                if ( $line =~ /EXPORTED FUNCTIONS|METHODS/ ) {
+                    $functions_methods_flag = 1;
+                }
+                $new_file .= $line . qq(\n);
+            } elsif ( $line =~ /^=over/ ) {
                 $over_count++;
-            }
-            if ( $line =~ /^=back/ ) {
-                say qq($pre   back: $line);
-                $over_count--;
+                if ( $over_count == 1 && $functions_methods_flag == 1 ) {
+                    say qq(Deleting =over at line $line_count);
+                } else {
+                    say qq($pre   over($over_count): $line);
+                    $new_file .= $line . qq(\n);
+                }
+            } elsif ( $line =~ /^=back/ ) {
                 if ( $over_count < 0 ) {
                     die qq($pre ERROR: unmatched '=back' POD directive);
+                } elsif ( $over_count == 1 && $functions_methods_flag == 1 ) {
+                    say qq(Deleting =back at line $line_count);
+                    $functions_methods_flag = 0;
+                } else {
+                    say qq($pre      back: $line);
+                    $new_file .= $line . qq(\n);
                 }
+                $over_count--;
+            } elsif ( $line =~ /^=item/ ) {
+                if ( $over_count == 1 && $functions_methods_flag == 1 ) {
+                    $line =~ s/^=item/=head2/;
+                    say qq($pre      item: $line);
+                } else {
+                    say qq($pre      item: $line);
+                }
+                $new_file .= $line . qq(\n);
+            } else {
+                $new_file .= $line . qq(\n);
             }
+        }
+        my $old_md5 = md5_base64($old_file);
+        my $new_md5 = md5_base64($new_file);
+        if ( $old_md5 ne $new_md5 ) {
+        #if ( length($old_file) == length($new_file) ) {
+            say qq(Old file and new file don't match, writing new file);
+            say qq(old: $old_md5);
+            say qq(new: $new_md5);
+            #say qq(old: ) . length($old_file);
+            #say qq(new: ) . length($new_file);
+            open(my $fh, q(>), $mod_file);
+            print $fh $new_file;
+            close($fh);
+        } else {
+            say qq(Old file and new file match, not writing new file);
         }
     }
 

@@ -254,12 +254,43 @@ use Log::Log4perl::Level;
     $log->info(qq(My PID is $$));
 
     ### MAIN SCRIPT
+    my $mod_path = $cfg->get(q(path));
+    # replace the tilde if it exists at the beginning of the path
+    if ( $mod_path =~ m!/$!) {
+        $mod_path =~ s!/$!!;
+        say qq(mod_path is now $mod_path);
+    }
     my @modules = File::Find::Rule->file()
                                 ->name(q(*.pm))
-                                ->in($cfg->get(q(path)));
+                                ->in($mod_path);
 
-    print join(qq(\n), @modules);
-    print qq(\n);
+    foreach my $mod_file ( @modules ) {
+        my $mod_name = $mod_file;
+        $mod_name =~ s!^$mod_path/lib/!!;
+        $mod_name =~ s!/!::!g;
+        say qq(==== Checking module $mod_name ====);
+        open(my $fh, q(<), $mod_file);
+        my ($over_count, $line_count);
+        foreach my $line ( <$fh> ) {
+            $line_count++;
+            my $pre = sprintf(q(%4d), $line_count);
+            chomp($line);
+            if ( $line =~ /^=head[1234]/ ) {
+                say qq($pre header: $line);
+            }
+            if ( $line =~ /^=over/ ) {
+                say qq($pre   over: $line);
+                $over_count++;
+            }
+            if ( $line =~ /^=back/ ) {
+                say qq($pre   back: $line);
+                $over_count--;
+                if ( $over_count < 0 ) {
+                    die qq($pre ERROR: unmatched '=back' POD directive);
+                }
+            }
+        }
+    }
 
 =head1 AUTHOR
 

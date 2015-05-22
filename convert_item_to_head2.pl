@@ -198,10 +198,11 @@ use Carp;
 
 ### External modules
 use strictures 2;
-use Digest::MD5 qw(md5 md5_base64);
+use Digest::MD5 qw(md5 md5_hex md5_base64);
 use File::Find::Rule;
 use Log::Log4perl qw(get_logger :no_extra_logdie_message);
 use Log::Log4perl::Level;
+use Text::Diff;
 
     binmode(STDOUT, ":utf8");
     # create a config object
@@ -273,7 +274,9 @@ use Log::Log4perl::Level;
         open(my $fh, q(<), $mod_file);
         my @file_contents = <$fh>;
         close($fh);
-        my $old_file = join(qq(\n), @file_contents);
+        # concatinate all of the lines in the file together; since we still
+        # have newlines in the file, everything should "Just Work"
+        my $old_file = join(q(), @file_contents);
         my $over_count = 0;
         my $line_count = 0;
         my $functions_methods_flag = 0;
@@ -281,20 +284,18 @@ use Log::Log4perl::Level;
         foreach my $line ( @file_contents ) {
             $line_count++;
             my $pre = sprintf(q(%4d), $line_count);
-            chomp($line);
             if ( $line =~ /^=head[1234]/ ) {
-                say qq($pre    header: $line);
+                print qq($pre    header: $line);
                 if ( $line =~ /EXPORTED FUNCTIONS|METHODS/ ) {
                     $functions_methods_flag = 1;
                 }
-                $new_file .= $line . qq(\n);
             } elsif ( $line =~ /^=over/ ) {
                 $over_count++;
                 if ( $over_count == 1 && $functions_methods_flag == 1 ) {
                     say qq(Deleting =over at line $line_count);
+                    undef $line;
                 } else {
-                    say qq($pre   over($over_count): $line);
-                    $new_file .= $line . qq(\n);
+                    print qq($pre   over($over_count): $line);
                 }
             } elsif ( $line =~ /^=back/ ) {
                 if ( $over_count < 0 ) {
@@ -302,37 +303,37 @@ use Log::Log4perl::Level;
                 } elsif ( $over_count == 1 && $functions_methods_flag == 1 ) {
                     say qq(Deleting =back at line $line_count);
                     $functions_methods_flag = 0;
+                    undef $line;
                 } else {
-                    say qq($pre      back: $line);
-                    $new_file .= $line . qq(\n);
+                    print qq($pre      back: $line);
                 }
                 $over_count--;
             } elsif ( $line =~ /^=item/ ) {
                 if ( $over_count == 1 && $functions_methods_flag == 1 ) {
                     $line =~ s/^=item/=head2/;
-                    say qq($pre      item: $line);
-                } else {
-                    say qq($pre      item: $line);
                 }
-                $new_file .= $line . qq(\n);
-            } else {
-                $new_file .= $line . qq(\n);
+                print qq($pre      item: $line);
+            }
+            if ( defined $line ) {
+                $new_file .= $line;
             }
         }
         my $old_md5 = md5_base64($old_file);
         my $new_md5 = md5_base64($new_file);
-        if ( $old_md5 ne $new_md5 ) {
-        #if ( length($old_file) == length($new_file) ) {
+        my $diff_out = diff(\$old_file, \$new_file,
+            {CONTEXT => 1, STYLE => q(Table)});
+        if ( length($diff_out) > 0) {
             say qq(Old file and new file don't match, writing new file);
             say qq(old: $old_md5);
             say qq(new: $new_md5);
-            #say qq(old: ) . length($old_file);
-            #say qq(new: ) . length($new_file);
+            say qq(diff output:);
+            say $diff_out;
             open(my $fh, q(>), $mod_file);
             print $fh $new_file;
             close($fh);
         } else {
             say qq(Old file and new file match, not writing new file);
+            say qq(  Checksums - old: $old_md5; new $new_md5);
         }
     }
 
